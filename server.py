@@ -123,7 +123,7 @@ class AuthenticationInformationServer:
             self.log("User {} logged in".format(user.username))
             return user
         else:
-            client_socket.send("Authentication failed".encode())
+            client_socket.send("Username or password incorrect".encode())
             return None
 
     # Function to handle listing online users
@@ -155,13 +155,17 @@ class AuthenticationInformationServer:
             if response == "GAME_ACK":
                 self.start_game(client_socket, current_user.username, receiver_username)
                 self.invite_response = None
+                self.waiting_invite_response = False
                 break
             elif response == "GAME_NEG":
                 client_socket.send("GAME_NEG".encode())
                 self.invite_response = None
+                self.waiting_invite_response = False
                 break
             if elapsed_time >= 10:
+                self.log("User {} don't respond to the invite".format(receiver_username))
                 client_socket.send("Invite timed out".encode())
+                self.waiting_invite_response = False
                 break
 
     # Function to handle the end of a game
@@ -177,7 +181,7 @@ class AuthenticationInformationServer:
                 message = client_socket.recv(1024).decode().strip()  # Receives message from the client
                 print(message)
                 if ((message.startswith("LIST-USER-ON-LINE") or message.startswith(
-                        "LIST-USER-PLAYING") or message.startswith("GAME_INI")) and
+                        "LIST-USER-PLAYING") or message.startswith("GAME_INI") or message.startswith("EXIT")) and
                         current_user is None):
                     client_socket.send("You must be logged in to perform this action".encode())
                 else:
@@ -227,13 +231,11 @@ class AuthenticationInformationServer:
                     elif message.startswith("YES"):
                         if self.waiting_invite_response:
                             self.invite_response = "GAME_ACK"
-                            self.waiting_invite_response = False
                         else:
                             client_socket.send("Invalid command".encode())
                     elif message.startswith("NO"):
                         if self.waiting_invite_response:
                             self.invite_response = "GAME_NEG"
-                            self.waiting_invite_response = False
                         else:
                             client_socket.send("Invalid command".encode())
                     else:

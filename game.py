@@ -15,7 +15,6 @@ host_server = 'localhost'
 port_server = 1024
 playing = False
 while_param = True
-while_param_game = True
 
 
 class TicTacToeGUI:
@@ -112,15 +111,18 @@ class TicTacToeGUI:
     def receive_data_from_opponent(self):
         # Receive moves from the opponent and update the game board
         try:
-            global should_close_game, while_param_game
-            while while_param_game:
+            global should_close_game
+            while True:
+                data = self.client.recv(1024).decode('utf-8')
                 if should_close_game:
                     should_close_game = False
                     self.client.send(bytes("EXIT", 'utf-8'))
-                    raise ConnectionAbortedError
-                data = self.client.recv(1024).decode('utf-8')
+                    self.on_closing()
+                    break
                 if data.startswith("EXIT"):
-                    raise ConnectionAbortedError
+                    messagebox.showinfo("Game Over", f"Opponent {self.name_opponent} has left the game.")
+                    self.on_closing()
+                    break
                 move = data.split(',')
                 row, col = int(move[0]), int(move[1])
                 self.buttons[row][col]['text'] = self.opponent
@@ -218,6 +220,7 @@ class ServerCommunication:
             except ConnectionResetError:
                 print("Server disconnected.")
                 while_param = False
+                break
 
     def send_data_to_server(self):
         # Send data to the server
@@ -232,6 +235,7 @@ class ServerCommunication:
                     self.client.send(bytes(data, 'utf-8'))
             except ConnectionResetError:
                 while_param = False
+                break
 
 
 if __name__ == "__main__":
