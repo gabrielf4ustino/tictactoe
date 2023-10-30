@@ -1,6 +1,7 @@
 import datetime
 import socket
 import threading
+import time
 
 
 # User class to represent user information
@@ -67,11 +68,11 @@ class AuthenticationInformationServer:
         self.users[player1].status = "ACTIVE"
         self.users[player2].status = "ACTIVE"
         client_socket.send(
-            "GAME_ACK: {} {} host {} {}".format(self.users[player2].address[0], self.users[player2].address[1], player1,
+            "GAME_ACK: {} {} host {} {}".format(self.users[player2].address[0], self.users[player1].address[1], player1,
                                                 player2)
             .encode())
         self.clients[player2].send("GAME_ACK: {} {} client {} {}".format(self.users[player2].address[0],
-                                                                         self.users[player2].address[1], player2,
+                                                                         self.users[player1].address[1], player2,
                                                                          player1).encode())
 
         self.log("Users {} and {} started a game".format(player1, player2))
@@ -139,11 +140,16 @@ class AuthenticationInformationServer:
         _, receiver_username = message.split(" ")
         if current_user.username == receiver_username:
             raise Exception("You cannot invite yourself")
+        if not self.users.__contains__(receiver_username):
+            raise Exception("User {} does not exist".format(receiver_username))
         receiver_socket = self.clients[receiver_username]
         receiver_socket.send("User {} wants to play with you. To accept, type yes and to reject, type no".format(
             current_user.username).encode())
         client_socket.send("Invite sent. Waiting for response...".encode())
+        start_time = time.time()
         while True:
+            current_time = time.time()
+            elapsed_time = current_time - start_time
             self.waiting_invite_response = True
             response = self.invite_response
             if response == "GAME_ACK":
@@ -151,9 +157,11 @@ class AuthenticationInformationServer:
                 self.invite_response = None
                 break
             elif response == "GAME_NEG":
-                print("Game rejected")
                 client_socket.send("GAME_NEG".encode())
                 self.invite_response = None
+                break
+            if elapsed_time >= 10:
+                client_socket.send("Invite timed out".encode())
                 break
 
     # Function to handle the end of a game
@@ -168,63 +176,68 @@ class AuthenticationInformationServer:
             try:
                 message = client_socket.recv(1024).decode().strip()  # Receives message from the client
                 print(message)
-                if message.startswith("REGISTER"):
-                    try:
-                        self.handle_register(client_socket, message)
-                    except Exception as e:
-                        client_socket.send("Registration failed. Reason: {}".format(e).encode())
-                elif message.startswith("LOGIN"):
-                    try:
-                        if current_user is not None:
-                            raise Exception("You are already logged in")
-                        else:
-                            current_user = self.handle_login(client_socket, addr, message)
-                    except Exception as e:
-                        client_socket.send("Login failed. Reason: {}".format(e).encode())
-                elif message.startswith("LIST-USER-ON-LINE"):
-                    try:
-                        self.handle_list_users(client_socket)
-                    except Exception as e:
-                        client_socket.send("List users on-line failed. Reason: {}".format(e).encode())
-                elif message.startswith("LIST-USER-PLAYING"):
-                    try:
-                        self.handle_list_users(client_socket, True)
-                    except Exception as e:
-                        client_socket.send("List users playing failed. Reason: {}".format(e).encode())
-                elif message.startswith("GAME_INI"):
-                    try:
-                        self.handle_invite(client_socket, current_user, message)
-                    except Exception as e:
-                        client_socket.send("Invite failed. Reason: {}".format(e).encode())
-                elif message.startswith("GAME_OVER"):
-                    try:
-                        self.handle_game_over(message)
-                    except Exception as e:
-                        client_socket.send("Game over failed. Reason: {}".format(e).encode())
-                elif message.startswith("EXIT"):
-                    try:
-                        if current_user is None:
-                            client_socket.send("exit".encode())
-                        else:
-                            self.close_connection(self.users[current_user.username])
-                            client_socket.send("exit".encode())
-                    except Exception as e:
-                        client_socket.send("Exit failed. Reason: {}".format(e).encode())
-                    break
-                elif message.startswith("YES"):
-                    if self.waiting_invite_response:
-                        self.invite_response = "GAME_ACK"
-                        self.waiting_invite_response = False
-                    else:
-                        client_socket.send("Invalid command".encode())
-                elif message.startswith("NO"):
-                    if self.waiting_invite_response:
-                        self.invite_response = "GAME_NEG"
-                        self.waiting_invite_response = False
-                    else:
-                        client_socket.send("Invalid command".encode())
+                if ((message.startswith("LIST-USER-ON-LINE") or message.startswith(
+                        "LIST-USER-PLAYING") or message.startswith("GAME_INI")) and
+                        current_user is None):
+                    client_socket.send("You must be logged in to perform this action".encode())
                 else:
-                    client_socket.send("Invalid command".encode())
+                    if message.startswith("REGISTER"):
+                        try:
+                            self.handle_register(client_socket, message)
+                        except Exception as e:
+                            client_socket.send("Registration failed. Reason: {}".format(e).encode())
+                    elif message.startswith("LOGIN"):
+                        try:
+                            if current_user is not None:
+                                raise Exception("You are already logged in")
+                            else:
+                                current_user = self.handle_login(client_socket, addr, message)
+                        except Exception as e:
+                            client_socket.send("Login failed. Reason: {}".format(e).encode())
+                    elif message.startswith("LIST-USER-ON-LINE"):
+                        try:
+                            self.handle_list_users(client_socket)
+                        except Exception as e:
+                            client_socket.send("List users on-line failed. Reason: {}".format(e).encode())
+                    elif message.startswith("LIST-USER-PLAYING"):
+                        try:
+                            self.handle_list_users(client_socket, True)
+                        except Exception as e:
+                            client_socket.send("List users playing failed. Reason: {}".format(e).encode())
+                    elif message.startswith("GAME_INI"):
+                        try:
+                            self.handle_invite(client_socket, current_user, message)
+                        except Exception as e:
+                            client_socket.send("Invite failed. Reason: {}".format(e).encode())
+                    elif message.startswith("GAME_OVER"):
+                        try:
+                            self.handle_game_over(message)
+                        except Exception as e:
+                            client_socket.send("Game over failed. Reason: {}".format(e).encode())
+                    elif message.startswith("EXIT"):
+                        try:
+                            if current_user is None:
+                                client_socket.send("exit".encode())
+                            else:
+                                self.close_connection(self.users[current_user.username])
+                                client_socket.send("exit".encode())
+                        except Exception as e:
+                            client_socket.send("Exit failed. Reason: {}".format(e).encode())
+                        break
+                    elif message.startswith("YES"):
+                        if self.waiting_invite_response:
+                            self.invite_response = "GAME_ACK"
+                            self.waiting_invite_response = False
+                        else:
+                            client_socket.send("Invalid command".encode())
+                    elif message.startswith("NO"):
+                        if self.waiting_invite_response:
+                            self.invite_response = "GAME_NEG"
+                            self.waiting_invite_response = False
+                        else:
+                            client_socket.send("Invalid command".encode())
+                    else:
+                        client_socket.send("Invalid command".encode())
             except ConnectionResetError:
                 if current_user is not None:
                     self.close_connection(self.users[current_user.username])

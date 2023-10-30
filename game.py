@@ -14,6 +14,8 @@ should_close_game = False
 host_server = 'localhost'
 port_server = 1024
 playing = False
+while_param = True
+while_param_game = True
 
 
 class TicTacToeGUI:
@@ -31,6 +33,7 @@ class TicTacToeGUI:
         self.root.title("Tic-Tac-Toe")
         self.host = host_client
         self.port = port_client
+        self.is_host = is_host
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # Set up server/client based on the is_host flag
         if is_host:
@@ -52,10 +55,10 @@ class TicTacToeGUI:
         self.create_exit_button()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         threading.Thread(target=self.receive_data_from_opponent).start()
-        self.root.mainloop()
-        global game_init, host_server, port_server
+        global game_init, host_server, port_server, playing
+        playing = True
         game_init = False
-
+        self.root.mainloop()
         if is_host:
             self.socket_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket_server.connect((host_server, port_server))
@@ -109,11 +112,15 @@ class TicTacToeGUI:
     def receive_data_from_opponent(self):
         # Receive moves from the opponent and update the game board
         try:
-            while True:
-                global should_close_game
+            global should_close_game, while_param_game
+            while while_param_game:
                 if should_close_game:
-                    self.on_closing()
+                    should_close_game = False
+                    self.client.send(bytes("EXIT", 'utf-8'))
+                    raise ConnectionAbortedError
                 data = self.client.recv(1024).decode('utf-8')
+                if data.startswith("EXIT"):
+                    raise ConnectionAbortedError
                 move = data.split(',')
                 row, col = int(move[0]), int(move[1])
                 self.buttons[row][col]['text'] = self.opponent
@@ -184,7 +191,8 @@ class ServerCommunication:
 
     def receive_data_from_server(self):
         # Receive and process data from the server
-        while True:
+        global should_close_game, playing, while_param, game_init, game_host, game_port, game_is_host, name_you, name_opponent
+        while while_param:
             try:
                 data = self.client.recv(1024).decode('utf-8').strip()
                 if not data or data == "exit":
@@ -192,7 +200,6 @@ class ServerCommunication:
                     break
                 print(data)
                 if data.startswith("GAME_ACK"):
-                    global should_close_game, playing
                     if playing:
                         should_close_game = True
                     _, opponent_host, opponent_port, is_host, you, opponent = data.split(" ")
@@ -200,23 +207,22 @@ class ServerCommunication:
                         is_host = True
                     else:
                         is_host = False
-                    global game_init, game_host, game_port, game_is_host, name_you, name_opponent
                     game_host = opponent_host
-                    game_port = int(opponent_port)
+                    game_port = int(opponent_port) + 1
                     game_is_host = is_host
                     name_you = you
                     name_opponent = opponent
-                    playing = True
                     game_init = True
                 elif data.startswith("GAME_NEG"):
                     print("Game request denied.")
             except ConnectionResetError:
                 print("Server disconnected.")
-                break
+                while_param = False
 
     def send_data_to_server(self):
         # Send data to the server
-        while True:
+        global playing, while_param
+        while while_param:
             try:
                 data = input()
                 if data == "EXIT":
@@ -225,18 +231,18 @@ class ServerCommunication:
                 else:
                     self.client.send(bytes(data, 'utf-8'))
             except ConnectionResetError:
-                print("Server disconnected.")
-                break
+                while_param = False
 
 
 if __name__ == "__main__":
     server = ServerCommunication()
     threading.Thread(target=server.receive_data_from_server).start()
     threading.Thread(target=server.send_data_to_server).start()
-    while True:
-        if game_init is True:
+    app = None
+    while while_param:
+        if game_init:
             print("Game is starting...")
             if game_is_host:
-                app = TicTacToeGUI(host_server, 9999, True, name_you, name_opponent)
+                app = TicTacToeGUI(host_server, game_port, True, name_you, name_opponent)
             else:
-                app = TicTacToeGUI(host_server, 9999, False, name_you, name_opponent)
+                app = TicTacToeGUI(host_server, game_port, False, name_you, name_opponent)
