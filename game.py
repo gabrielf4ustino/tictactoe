@@ -229,8 +229,12 @@ class ServerCommunication:
             try:
                 data = input()
                 if data == "EXIT":
-                    self.client.send(bytes(data, 'utf-8'))
-                    break
+                    if playing:
+                        print("You are currently in a game. Please exit the game first.")
+                    else:
+                        self.client.send(bytes(data, 'utf-8'))
+                        while_param = False
+                        break
                 else:
                     self.client.send(bytes(data, 'utf-8'))
             except ConnectionResetError:
